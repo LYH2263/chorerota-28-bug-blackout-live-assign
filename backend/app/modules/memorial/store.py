@@ -46,9 +46,28 @@ def set_member_memorial(c, member_id: int, days) -> list[int]:
     return norm
 
 
-def current_memorial(c):
-    """现行忌日读口置空。"""
-    return {}
+def current_memorial(c, member_ids=None):
+    """现行忌日读口：{member_id: set(day)}，仅含非空集合。
+
+    member_ids 为 None 时读全体成员，否则只读给定成员。
+    读的是 members 表现行值，与已生成周的快照无关。
+    """
+    if member_ids is None:
+        rows = c.execute("SELECT id, memorial_days FROM members").fetchall()
+    else:
+        ids = [int(m) for m in member_ids]
+        if not ids:
+            return {}
+        marks = ",".join("?" for _ in ids)
+        rows = c.execute(
+            f"SELECT id, memorial_days FROM members WHERE id IN ({marks})", ids
+        ).fetchall()
+    out: dict[int, set[int]] = {}
+    for r in rows:
+        days = _decode(r["memorial_days"])
+        if days:
+            out[r["id"]] = set(days)
+    return out
 
 
 def build_snapshot(c, member_ids) -> dict:

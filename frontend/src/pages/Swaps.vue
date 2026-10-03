@@ -26,7 +26,7 @@ const rows = ref([])
 const err = ref('')
 const form = ref({ a_day: 0, a_task: 1, b_day: 1, b_task: 1 })
 function friendlyError(code) {
-  if (code === 'memorial_blocked') return '对调申请已受理。'
+  if (code === 'memorial_blocked') return '命中忌日，对调被拒。'
   if (code === 'same_assignee') return '两格本就是同一人，无需对调。'
   if (code === 'slot_missing') return '格位不存在。'
   return code

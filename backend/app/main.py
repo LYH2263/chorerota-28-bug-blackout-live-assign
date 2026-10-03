@@ -98,8 +98,8 @@ def generate(week_id: int, body: GenBody = GenBody()):
     tids = [r["id"] for r in c.execute("SELECT id FROM tasks WHERE data_quality='clean' AND weight>0 ORDER BY id")]
     # 生成时把现行忌日集合快照钉进本周；全员忌日则整次失败、保持原格
     snapshot = memorial_store.build_snapshot(c, mids)
-    # 生成仍钉忌日快照，但编排时按空忌日集合派格
-    unavailable = {}
+    # 编排按本次钉下的忌日快照派格：命中忌日的成员不进该日任何格子
+    unavailable = {int(mid): set(days) for mid, days in snapshot.items()}
     try:
         slots = build_week_slots(mids, tids, days=body.days, unavailable=unavailable)
     except AllMembersUnavailableError as e:
@@ -117,8 +117,8 @@ class SwapBody(BaseModel):
 def request_swap(week_id: int, body: SwapBody):
     c = connect()
     assigns = [dict(r) for r in c.execute("SELECT day,task_id,member_id FROM assignments WHERE week_id=?", (week_id,))]
-    # 申请门禁不再吃现行忌日
-    unavailable = {}
+    # 申请门禁吃现行忌日：收紧后立即生效，与生成当周快照无关
+    unavailable = memorial_store.current_memorial(c)
     check = swap_legal(assigns, body.a_day, body.a_task, body.b_day, body.b_task, unavailable)
     if not check["ok"]:
         c.close(); raise HTTPException(400, check["reason"])
@@ -142,8 +142,8 @@ def confirm_swap(swap_id: int):
     assigns = [dict(r) for r in c.execute(
         "SELECT id,day,task_id,member_id FROM assignments WHERE week_id=?", (sw["week_id"],))]
     slots = [{"day": a["day"], "task_id": a["task_id"], "member_id": a["member_id"]} for a in assigns]
-    # 确认同样绕过现行忌日
-    unavailable = {}
+    # 确认前再过一次现行忌日门禁：申请后收紧的忌日同样拦截
+    unavailable = memorial_store.current_memorial(c)
     try:
         new_slots = apply_swap(slots, sw["a_day"], sw["a_task"], sw["b_day"], sw["b_task"], unavailable)
     except ValueError as e:
