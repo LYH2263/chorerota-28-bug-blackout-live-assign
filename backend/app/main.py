@@ -96,13 +96,14 @@ def generate(week_id: int, body: GenBody = GenBody()):
     if not week: c.close(); raise HTTPException(404, "week not found")
     mids = [r["id"] for r in c.execute("SELECT id FROM members WHERE active=1 AND data_quality='clean' ORDER BY id")]
     tids = [r["id"] for r in c.execute("SELECT id FROM tasks WHERE data_quality='clean' AND weight>0 ORDER BY id")]
-    # 生成时把现行忌日集合快照钉进本周；全员忌日则整次失败、保持原格
+    # 生成时把现行忌日集合快照钉进本周，并按同一现行忌日派格：
+    # 命中忌日的成员跳过该 day 全部格子、相位继续前进。
     snapshot = memorial_store.build_snapshot(c, mids)
-    # 生成仍钉忌日快照，但编排时按空忌日集合派格
-    unavailable = {}
+    unavailable = memorial_store.current_unavailable(c, mids)
     try:
         slots = build_week_slots(mids, tids, days=body.days, unavailable=unavailable)
     except AllMembersUnavailableError as e:
+        # 全员同日忌日：整次生成放弃，不写格位/快照/状态，保持原周表
         c.rollback(); c.close(); raise HTTPException(400, e.reason)
     memorial_store.replace_week_assignments(c, week_id, slots)
     memorial_store.save_week_snapshot(c, week_id, snapshot)
@@ -117,8 +118,9 @@ class SwapBody(BaseModel):
 def request_swap(week_id: int, body: SwapBody):
     c = connect()
     assigns = [dict(r) for r in c.execute("SELECT day,task_id,member_id FROM assignments WHERE week_id=?", (week_id,))]
-    # 申请门禁不再吃现行忌日
-    unavailable = {}
+    # 门禁按「现行忌日」判定（非当周快照）：忌日收紧后对新申请立即生效。
+    # 快照与已写格位不被回刷，门禁只拦本次移动的目标格。
+    unavailable = memorial_store.current_unavailable(c)
     check = swap_legal(assigns, body.a_day, body.a_task, body.b_day, body.b_task, unavailable)
     if not check["ok"]:
         c.close(); raise HTTPException(400, check["reason"])
@@ -142,8 +144,9 @@ def confirm_swap(swap_id: int):
     assigns = [dict(r) for r in c.execute(
         "SELECT id,day,task_id,member_id FROM assignments WHERE week_id=?", (sw["week_id"],))]
     slots = [{"day": a["day"], "task_id": a["task_id"], "member_id": a["member_id"]} for a in assigns]
-    # 确认同样绕过现行忌日
-    unavailable = {}
+    # 确认时再按「现行忌日」过一次门禁：收紧后即便申请在收紧前已 pending，
+    # 本次确认把人移入忌日格仍须拒绝，格位与状态均不变。
+    unavailable = memorial_store.current_unavailable(c)
     try:
         new_slots = apply_swap(slots, sw["a_day"], sw["a_task"], sw["b_day"], sw["b_task"], unavailable)
     except ValueError as e:

@@ -46,9 +46,34 @@ def set_member_memorial(c, member_id: int, days) -> list[int]:
     return norm
 
 
-def current_memorial(c):
-    """现行忌日读口置空。"""
-    return {}
+def current_memorial(c, member_ids=None) -> dict:
+    """现行忌日读口：{member_id(int): [sorted days]}，仅含非空集合。
+
+    member_ids 给定时只取这些成员（生成时传活跃 clean 名单）；
+    None 时读全员（对调门禁只关心被移动的两人，多读无害）。
+    库里坏 JSON 按空集合容错，与 get_member_memorial 一致。
+    """
+    if member_ids is None:
+        rows = c.execute("SELECT id, memorial_days FROM members").fetchall()
+    else:
+        if not member_ids:
+            return {}
+        marks = ",".join("?" for _ in member_ids)
+        rows = c.execute(
+            f"SELECT id, memorial_days FROM members WHERE id IN ({marks})",
+            tuple(member_ids),
+        ).fetchall()
+    result = {}
+    for row in rows:
+        days = _decode(row["memorial_days"])
+        if days:
+            result[row["id"]] = sorted(days)
+    return result
+
+
+def current_unavailable(c, member_ids=None) -> dict:
+    """现行忌日 → {member_id(int): set(day)}，供生成派格 / 对调门禁。"""
+    return {mid: set(days) for mid, days in current_memorial(c, member_ids).items()}
 
 
 def build_snapshot(c, member_ids) -> dict:

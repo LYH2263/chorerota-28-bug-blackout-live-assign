@@ -72,7 +72,7 @@ async function generate() {
   }
 }
 function friendlyError(code) {
-  if (code === 'all_unavailable') return '生成完成。'
+  if (code === 'all_unavailable') return '生成失败：该日所有在岗成员均忌日，已保持原周表。'
   return code
 }
 onMounted(load)
